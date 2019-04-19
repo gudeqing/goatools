@@ -1,6 +1,6 @@
 """Plot a GODagSmall."""
 
-__copyright__ = "Copyright (C) 2016-2017, DV Klopfenstein, H Tang, All rights reserved."
+__copyright__ = "Copyright (C) 2016-2018, DV Klopfenstein, H Tang, All rights reserved."
 __author__ = "DV Klopfenstein"
 
 import sys
@@ -73,8 +73,21 @@ class GODagPltVars(object):
         'go_sources': 'palegreen',
     }
     total_color_dict = {v: k for k, v in rel2col.items()}  # added by gdq
-    total_color_dict.update({v: k for k, v in alpha2col.items()})
-    total_color_dict.update({v: k for k, v in key2col.items()})
+    for k, v in alpha2col.items():
+        if k == 0.005:
+            k = 'pvalue=(0, 0.005]'
+        if k == 0.010:
+            k = 'pvalue=(0.005, 0.01]'
+        if k == 0.050:
+            k = 'pvalue=(0.01, 0.05]'
+        else:
+            k = 'pvalue=(0.05, 1]'
+        total_color_dict[v] = k
+
+    for k, v in key2col.items():
+        if k == "level_01":
+            k = 'level=L01'
+        total_color_dict[v] = k
 
     fmthdr = "{GO} L{level:>02} D{depth:>02}"
     fmtres = "{study_count} genes"
@@ -133,7 +146,7 @@ class GODagSmallPlot(object):
         if 'goea_results' in kws:
             goea = kws['goea_results']
             if goea:
-                return "p_{M}".format(M=goea[0]._methods[0].fieldname)
+                return "p_{M}".format(M=goea[0].method_flds[0].fieldname)
 
     def _init_goid2color(self):
         """Set colors of GO terms."""
@@ -188,7 +201,7 @@ class GODagSmallPlot(object):
         rel = "is_a"
         pydot = self._get_pydot()
         # Initialize empty dag
-        dag = pydot.Dot(label=self.title, graph_type='digraph', dpi="{}".format(self.dpi))
+        dag = pydot.Dot(label=self.title, graph_type='digraph', dpi="{}".format(self.dpi), compound='true', labeloc='t')
         # Initialize nodes
         go2node = self._get_go2pydotnode()
         # Add nodes to graph
@@ -199,7 +212,7 @@ class GODagSmallPlot(object):
         for src, tgt in self.godag.get_edges():
             # add by gdq: find relationship, 可能没有用，因为作者仅仅用is_a定义parent节点 --
             if src in self.obo and tgt in self.obo:
-                for rel_type, set_content in self.obo[src].realtionship:
+                for rel_type, set_content in self.obo[src].relationship.items():
                     set_content_ids = {x.id for x in set_content}
                     if tgt in set_content_ids:
                         print('YES, Found One')
@@ -211,16 +224,22 @@ class GODagSmallPlot(object):
                 shape="normal",
                 color=rel2col[rel],
                 dir="back")) # invert arrow direction for obo dag convention
+        # added by gdq for legend:
+        subgraph = pydot.Cluster('Legend', label="Legend")
+        dag.add_subgraph(subgraph)
+        for k, v in self.legend_nodes.items():
+            subgraph.add_node(v)
         return dag
 
     def _get_go2pydotnode(self):
         """Create pydot Nodes."""
-        used_color = set()  # add by gdq
+        used_color = list()  # add by gdq
         go2node = {}
         for goid, goobj in self.godag.go2obj.items():
             txt = self._get_node_text(goid, goobj)
             fillcolor = self.goid2color.get(goid, "white")
-            used_color.add(used_color)  # add by gdq
+            if fillcolor not in used_color:
+                used_color.append(fillcolor)  # add by gdq
             node = self.pydot.Node(
                 txt,
                 shape="box",
@@ -229,16 +248,19 @@ class GODagSmallPlot(object):
                 color="mediumseagreen")
             go2node[goid] = node
         # add nodes as legend  by gdq
+        self.legend_nodes = dict()
         for each in used_color:
-            if used_color == 'white':
+            if each == 'white':
                 continue
             node_txt = self.pltvars.total_color_dict[each]
             node = self.pydot.Node(
                 node_txt,
                 shape="note",
+                style="filled",
                 fillcolor=each,
-                color=each)
-            go2node[node_txt] = node
+                color=each
+            )
+            self.legend_nodes[node_txt] = node
         return go2node
 
     def _get_pydot(self):
@@ -285,20 +307,21 @@ class GODagSmallPlot(object):
               2. Ptprc, Mif, Cd81, Bcl2, Sash3, Tnfrsf4, Cdkn1a
               3. 7: Ptprc, Mif, Cd81, Bcl2, Sash3...
         """
-        N = self.pltvars.items_p_line
+        npl = self.pltvars.items_p_line  # Number of items Per Line
         prt_items = sorted([self.__get_genestr(itemid) for itemid in res.study_items])
-        prt_multiline = [prt_items[i:i+N] for i in range(0, len(prt_items), N)]
+        prt_multiline = [prt_items[i:i+npl] for i in range(0, len(prt_items), npl)]
         num_items = len(prt_items)
         if self.study_items_max is None:
             genestr = "\n".join([", ".join(str(e) for e in sublist) for sublist in prt_multiline])
             return "{N}) {GENES}".format(N=num_items, GENES=genestr)
         else:
             if num_items <= self.study_items_max:
+                strs = [", ".join(str(e) for e in sublist) for sublist in prt_multiline]
                 genestr = "\n".join([", ".join(str(e) for e in sublist) for sublist in prt_multiline])
                 return genestr
             else:
                 short_list = prt_items[:self.study_items_max]
-                short_mult = [short_list[i:i+N] for i in range(0, len(short_list), N)]
+                short_mult = [short_list[i:i+npl] for i in range(0, len(short_list), npl)]
                 short_str = "\n".join([", ".join(str(e) for e in sublist) for sublist in short_mult])
                 return "".join(["{N} genes; ".format(N=num_items), short_str, "..."])
 
@@ -312,4 +335,4 @@ class GODagSmallPlot(object):
             return str(itemid)
         return itemid
 
-# Copyright (C) 2016-2017, DV Klopfenstein, H Tang, All rights reserved.
+# Copyright (C) 2016-2018, DV Klopfenstein, H Tang, All rights reserved.
