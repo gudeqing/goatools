@@ -13,7 +13,8 @@ def plot_gos(fout_png, goids, obo_dag, *args, **kws):
     """Given GO ids and the obo_dag, create a plot of paths from GO ids."""
     engine = kws['engine'] if 'engine' in kws else 'pydot'
     godagsmall = OboToGoDagSmall(goids=goids, obodag=obo_dag).godag
-    godagplot = GODagSmallPlot(godagsmall, *args, **kws)
+    # godagplot = GODagSmallPlot(godagsmall, *args, **kws)
+    godagplot = GODagSmallPlot(godagsmall, obo=obo_dag, *args, **kws) # add by gdq
     godagplot.plt(fout_png, engine)
 
 def plot_goid2goobj(fout_png, goid2goobj, *args, **kws):
@@ -71,6 +72,9 @@ class GODagPltVars(object):
         'level_01': 'lightcyan',
         'go_sources': 'palegreen',
     }
+    total_color_dict = {v: k for k, v in rel2col.items()}  # added by gdq
+    total_color_dict.update({v: k for k, v in alpha2col.items()})
+    total_color_dict.update({v: k for k, v in key2col.items()})
 
     fmthdr = "{GO} L{level:>02} D{depth:>02}"
     fmtres = "{study_count} genes"
@@ -101,6 +105,7 @@ class GODagSmallPlot(object):
         self.godag = godagsmall
         self.goid2color = self._init_goid2color()
         self.pydot = None
+        self.obo = kws['obo'] if 'obo' in kws else dict()  # add by gdq
 
     def _init_study_items_max(self):
         """User can limit the number of genes printed in a GO term."""
@@ -192,6 +197,15 @@ class GODagSmallPlot(object):
         # Add edges to graph
         rel2col = self.pltvars.rel2col
         for src, tgt in self.godag.get_edges():
+            # add by gdq: find relationship, 可能没有用，因为作者仅仅用is_a定义parent节点 --
+            if src in self.obo and tgt in self.obo:
+                for rel_type, set_content in self.obo[src].realtionship:
+                    set_content_ids = {x.id for x in set_content}
+                    if tgt in set_content_ids:
+                        print('YES, Found One')
+                        rel = rel_type
+                        break
+            # end adding --
             dag.add_edge(pydot.Edge(
                 go2node[tgt], go2node[src],
                 shape="normal",
@@ -201,10 +215,12 @@ class GODagSmallPlot(object):
 
     def _get_go2pydotnode(self):
         """Create pydot Nodes."""
+        used_color = set()  # add by gdq
         go2node = {}
         for goid, goobj in self.godag.go2obj.items():
             txt = self._get_node_text(goid, goobj)
             fillcolor = self.goid2color.get(goid, "white")
+            used_color.add(used_color)  # add by gdq
             node = self.pydot.Node(
                 txt,
                 shape="box",
@@ -212,6 +228,17 @@ class GODagSmallPlot(object):
                 fillcolor=fillcolor,
                 color="mediumseagreen")
             go2node[goid] = node
+        # add nodes as legend  by gdq
+        for each in used_color:
+            if used_color == 'white':
+                continue
+            node_txt = self.pltvars.total_color_dict[each]
+            node = self.pydot.Node(
+                node_txt,
+                shape="note",
+                fillcolor=each,
+                color=each)
+            go2node[node_txt] = node
         return go2node
 
     def _get_pydot(self):
